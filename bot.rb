@@ -1,5 +1,18 @@
 require 'slack-ruby-client'
 require 'logging'
+require 'amazon/awis'
+# require 'nokogiri'
+
+ALEXA_URL = 'http://www.alexa.com/siteinfo/vice.com'
+ALEXA_SELECTOR = '#traffic-rank-content > div > span.span-col.last > div:nth-child(1) > span > span > div'
+
+$alexa = Amazon::Awis.new(
+  aws_access_key_id: 'AKIAIFB2WLBEG2JJQGXQ',
+  aws_secret_key: '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',
+  action: 'UrlInfo',
+  response_group: 'TrafficData',
+  # debug: true
+)
 
 logger = Logging.logger(STDOUT)
 logger.level = :debug
@@ -35,30 +48,50 @@ client.on :message do |data|
   case data['text']
   when 'hi', 'bot hi' then
     client.typing channel: data['channel']
-    client.message channel: data['channel'], text: "Hello <@#{data['user']}>."
+logger.debug $alexa.get_info('vice.com').success?
+    # client.message channel: data['channel'], text: "Hello <@#{data['user']}>."
     logger.debug("<@#{data['user']}> said hi")
+# puts $alexa.get_info('vice.com').data
+# client.message channel: data['channel'], text: $alexa.get_info('vice.com').data.to_json
 
-    if direct_message?(data)
-      client.message channel: data['channel'], text: "It\'s nice to talk to you directly."
-      logger.debug("And it was a direct message")
-    end
+    # if direct_message?(data)
+      # client.message channel: data['channel'], text: "It\'s nice to talk to you directly."
+      # logger.debug("And it was a direct message")
+    # end
 
-  when 'attachment', 'bot attachment' then
-    # attachment messages require using web_client
-    client.web_client.chat_postMessage(post_message_payload(data))
-    logger.debug("Attachment message posted")
+  # when 'attachment', 'bot attachment' then
+  #   # attachment messages require using web_client
+  #   client.web_client.chat_postMessage(post_message_payload(data))
+  #   logger.debug("Attachment message posted")
 
   when bot_mentioned(client)
-    client.message channel: data['channel'], text: 'You really do care about me. :heart:'
-    logger.debug("Bot mentioned in channel #{data['channel']}")
+    client.typing channel: data['channel']
 
-  when 'bot help', 'help' then
-    client.message channel: data['channel'], text: help
-    logger.debug("A call for help")
+    if data['text'] =~ /help/
+      client.message channel: data['channel'], text: "The most :key: KPI"
+    else
+      resp = $alexa.get_info('vice.com')
+      if resp.success?
+        rank = resp.data.at('//TrafficData//UsageStatistics//UsageStatistic//Rank')
+        delta = rank.at('//Delta').content.to_i
+        delta = (delta.abs == delta ? "(-#{delta.abs}) :red_circle:" : "(+#{delta.abs}) :green_apple:") # negative delta is up, according to web?
 
-  when /^bot/ then
-    client.message channel: data['channel'], text: "Sorry <@#{data['user']}>, I don\'t understand. \n#{help}"
-    logger.debug("Unknown command")
+        client.message channel: data['channel'], text: "Global rank: #{rank.at('//Value').content} #{delta}"
+      else
+        client.message channel: data['channel'], text: "Alexa API request failed, sorry"
+      end
+    end
+
+  #   client.message channel: data['channel'], text: 'You really do care about me. :heart:'
+  #   logger.debug("Bot mentioned in channel #{data['channel']}")
+
+  # when 'bot help', 'help' then
+  #   client.message channel: data['channel'], text: help
+  #   logger.debug("A call for help")
+
+  # when /^bot/ then
+  #   client.message channel: data['channel'], text: "Sorry <@#{data['user']}>, I don\'t understand. \n#{help}"
+  #   logger.debug("Unknown command")
   end
 end
 
